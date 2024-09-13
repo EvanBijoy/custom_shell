@@ -8,9 +8,9 @@
 #include <grp.h>
 #include <time.h>
 #include "../headers/reveal.h"
-#include "utils.h"
+#include "../headers/shared.h"
 
-static char prev_dir[1024] = "";
+#define BUFFERSIZE 4096
 
 void printFileInfo(const char *fileName, const struct stat *fileStat)
 {
@@ -37,7 +37,7 @@ void printFileInfo(const char *fileName, const struct stat *fileStat)
 
     if(S_ISDIR(fileStat->st_mode))
     {
-        printf("\033[1;33m%s\034[0m\n", fileName);
+        printf("\033[1;34m%s\033[0m\n", fileName);
     }
     else if(fileStat->st_mode & S_IXUSR)
     {
@@ -45,7 +45,7 @@ void printFileInfo(const char *fileName, const struct stat *fileStat)
     }
     else
     {
-        printf("\033[0;37m%s\033[0m\n", fileName);
+        printf("%s\n", fileName);
     }
 }
 
@@ -55,88 +55,122 @@ void listFiles(const char *path, int showHidden, int showDetails)
     struct stat fileStat;
     DIR *dp = opendir(path);
 
-    if(dp == NULL)
+    if (dp == NULL)
     {
         perror("opendir");
         return;
     }
 
-    while((entry = readdir(dp)) != NULL)
+    // Store directory entries in an array
+    struct dirent **namelist;
+    int n = scandir(path, &namelist, NULL, alphasort); // alphasort does the lexicographical sorting
+
+    if (n < 0)
     {
-        if(!showHidden && entry->d_name[0] == '.')
+        perror("scandir");
+        closedir(dp);
+        return;
+    }
+
+    // Iterate over sorted entries
+    for (int i = 0; i < n; i++)
+    {
+        entry = namelist[i];
+
+        if (!showHidden && entry->d_name[0] == '.')
         {
+            free(namelist[i]);
             continue;
         }
 
-        char fullPath[1024];
+        char fullPath[BUFFERSIZE];
         snprintf(fullPath, sizeof(fullPath), "%s/%s", path, entry->d_name);
 
-        if(stat(fullPath, &fileStat) == -1)
+        if (stat(fullPath, &fileStat) == -1)
         {
             perror("stat");
+            free(namelist[i]);
             continue;
         }
 
-        if(showDetails)
+        if (showDetails)
         {
             printFileInfo(entry->d_name, &fileStat);
         }
         else
         {
-            if(S_ISDIR(fileStat.st_mode))
+            if (S_ISDIR(fileStat.st_mode))
             {
                 printf("\033[1;34m%s\033[0m\n", entry->d_name);
             }
-            else if(fileStat.st_mode & S_IXUSR)
+            else if (fileStat.st_mode & S_IXUSR)
             {
                 printf("\033[1;32m%s\033[0m\n", entry->d_name);
             }
             else
             {
-                printf("\033[0;37m%s\033[0m\n", entry->d_name);
+                printf("%s\n", entry->d_name);
             }
         }
+
+        free(namelist[i]);
     }
 
+    free(namelist);
     closedir(dp);
 }
 
-void revealCommand(char *args[], char *home)
+
+void revealCommand(char *args[], int count, char *home)
 {
+    char resolvedPath[BUFFERSIZE];
     char *new_path = NULL;
-    char * dup;
-    int showHidden = 0, showDetails = 0, start = 1;
+    char *dup;
+    int showHidden = 0, showDetails = 0, start = 1, flag = 0;
 
     for(int i = 1; args[i] != NULL; i++)
     {
         if(args[i][0] == '-')
         {
-            for(int j = 1; j < strlen(args[i]); j++)
+            if(args[i][1] == '\0')
             {
-                if(args[i][j] == 'a')
+                flag = 1;
+            }
+            else
+            {
+                for(int j = 1; j < strlen(args[i]); j++)
                 {
-                    showHidden = 1;
-                }
-                if(args[i][j] == 'l')
-                {
-                    showDetails = 1;
-                }
-                if(args[i][j] != 'a' && args[i][j] != 'l')
-                {
-                    printf("INCORRECT FLAG\n");
-                    return;
+                    if(args[i][j] == 'a')
+                    {
+                        showHidden = 1;
+                    }
+                    if(args[i][j] == 'l')
+                    {
+                        showDetails = 1;
+                    }
+                    if(args[i][j] != 'a' && args[i][j] != 'l')
+                    {
+                        printf("INCORRECT FLAG\n");
+                        return;
+                    }
                 }
             }
         }
         else
         {
             start = i;
+            break;
         }
     }
 
-    if(args[start] == NULL)
+    if(start == count || (start == count - 1 && args[start][0] == '-' && strcmp(args[start], "-")))
     {
-        listFiles(home, showHidden, showDetails);
+        new_path = getcwd(resolvedPath, BUFFERSIZE);
+        if (new_path == NULL) {
+            perror("getcwd");
+            return;
+        }
+        listFiles(new_path, showHidden, showDetails);
         return;
     }
 
@@ -144,27 +178,29 @@ void revealCommand(char *args[], char *home)
     {
         new_path = home;
     }
-    else if(strcmp(args[start], "-") == 0)
+    else if(flag)
     {
         if(strcmp(prev_dir, "") == 0)
         {
-            printf("ERROR: No previous directory to hop to.\n");
+            printf("ERROR: No previous directory to reveal.\n");
             return;
         }
         new_path = prev_dir;
     }
     else if(args[start][0] == '~')
     {
-        dup = strdup(home);
-        strcat(dup, args[start] + 1);
-        new_path = dup;
+        new_path = (char*)malloc(strlen(home) + strlen(args[start]));
+        if (new_path == NULL) {
+            perror("malloc");
+            return;
+        }
+        strcpy(new_path, home);
+        strcat(new_path, args[start] + 1);
     }
     else
     {
         new_path = args[start];
     }
-
-    getcwd(prev_dir, sizeof(prev_dir)); 
 
     listFiles(new_path, showHidden, showDetails);
 }

@@ -1,26 +1,20 @@
-# Compiler
 CC = gcc
 
-# Directories
 INCLUDE_DIR = include
 SRC_DIR = source
 
-# Compiler flags
-CFLAGS = -Wall -Wextra -I$(INCLUDE_DIR)
+CFLAGS = -w -I$(INCLUDE_DIR)
 
-# Source files
 SRCS = $(wildcard $(SRC_DIR)/*.c)
 
-# Executable name
 EXEC = shell
 
-# Target rules
-all: $(EXEC)
+all: clean $(EXEC)
 
-$(EXEC): clean
+$(EXEC): $(SRCS)
 	$(CC) $(CFLAGS) $(SRCS) -o $(EXEC)
 
 clean:
-	rm -f $(EXEC)
+	-rm -f $(EXEC)
 
 .PHONY: all clean

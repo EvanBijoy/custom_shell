@@ -5,15 +5,22 @@
 #include <unistd.h>
 #include "../headers/prompt.h"
 
+#define BUFFERSIZE 4096
+
 void showPrompt(char * home)
 {
-    int BUFFERSIZE = 2048;
     char systemname[BUFFERSIZE];
     char currentdirectory[BUFFERSIZE];
     char * username = getenv("USER");
 
     gethostname(systemname, sizeof(systemname));
     getcwd(currentdirectory, sizeof(currentdirectory));
-
-    printf("<%s@%s:~%s> ", username, systemname, currentdirectory + strlen(home));
+    if(strlen(currentdirectory) >= strlen(home))
+    {
+        printf("<%s@%s:~%s> ", username, systemname, currentdirectory + strlen(home));
+    }
+    else
+    {
+        printf("<%s@%s:%s> ", username, systemname, currentdirectory);
+    }
 }
